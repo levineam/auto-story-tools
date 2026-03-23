@@ -1,0 +1,11 @@
+{
+  "name": "auto-story-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace metadata and future JS tooling for auto-story-tools.",
+  "license": "MIT",
+  "scripts": {
+    "check": "echo 'No Node checks yet — core implementation is Python-first.'",
+    "test": "echo 'No Node tests yet — use uv run pytest.'"
+  }
+}
