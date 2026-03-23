@@ -1,6 +1,10 @@
 """
-Provider abstraction: Anthropic, OpenAI, or configurable base URL.
-Supports separate models for generation vs evaluation (avoid self-congratulation bias).
+Provider abstraction for direct API keys and optional bridge/proxy transports.
+
+Repository contract:
+- Plain provider API keys work by default
+- Gateway / proxy / OAuth-backed transports remain optional
+- No hard dependency on any specific runtime (including OpenClaw)
 """
 
 import hashlib
@@ -18,7 +22,7 @@ class ProviderType(Enum):
 
 
 class LLMProvider:
-    """Unified LLM provider with role-based model selection."""
+    """Unified LLM provider with role-based model selection and optional transport overrides."""
 
     def __init__(self, project_dir: Path | None = None):
         if project_dir:
@@ -26,30 +30,87 @@ class LLMProvider:
         else:
             load_dotenv()
 
+        self.explicit_provider = os.environ.get("AUTO_OUTLINE_PROVIDER", "").strip().lower()
+        self.generic_api_key = os.environ.get("AUTO_OUTLINE_API_KEY", "")
         self.anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
         self.openai_key = os.environ.get("OPENAI_API_KEY", "")
         self.api_base = os.environ.get("AUTO_OUTLINE_API_BASE", "")
+        self.auth_header_override = os.environ.get("AUTO_OUTLINE_AUTH_HEADER", "").strip()
+        self.auth_scheme_override = os.environ.get("AUTO_OUTLINE_AUTH_SCHEME", "").strip().lower()
 
         # Model config — generation and evaluation should differ
         self.draft_model = os.environ.get("AUTO_OUTLINE_DRAFT_MODEL", "claude-sonnet-4-6")
         self.eval_model = os.environ.get("AUTO_OUTLINE_EVAL_MODEL", "claude-opus-4-6")
 
-        # Detect provider
         self.provider = self._detect_provider()
+        self.api_key = self._resolve_api_key()
+        self.auth_header = self._resolve_auth_header()
+        self.auth_scheme = self._resolve_auth_scheme()
 
     def _detect_provider(self) -> ProviderType:
+        if self.explicit_provider:
+            try:
+                return ProviderType(self.explicit_provider)
+            except ValueError as exc:
+                raise RuntimeError(
+                    "AUTO_OUTLINE_PROVIDER must be 'anthropic' or 'openai'."
+                ) from exc
+
         if self.anthropic_key:
             return ProviderType.ANTHROPIC
         if self.openai_key:
             return ProviderType.OPENAI
-        raise RuntimeError("No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+        if self.generic_api_key:
+            raise RuntimeError(
+                "AUTO_OUTLINE_PROVIDER is required when AUTO_OUTLINE_API_KEY is set."
+            )
+
+        raise RuntimeError(
+            "No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or use "
+            "AUTO_OUTLINE_PROVIDER + AUTO_OUTLINE_API_KEY for bridge mode."
+        )
+
+    def _resolve_api_key(self) -> str:
+        if self.generic_api_key:
+            return self.generic_api_key
+
+        if self.provider == ProviderType.ANTHROPIC and self.anthropic_key:
+            return self.anthropic_key
+        if self.provider == ProviderType.OPENAI and self.openai_key:
+            return self.openai_key
+
+        env_name = (
+            "ANTHROPIC_API_KEY" if self.provider == ProviderType.ANTHROPIC else "OPENAI_API_KEY"
+        )
+        raise RuntimeError(f"Missing API key for provider '{self.provider.value}'. Set {env_name}.")
+
+    def _resolve_auth_header(self) -> str:
+        if self.auth_header_override:
+            return self.auth_header_override
+        if self.provider == ProviderType.ANTHROPIC:
+            return "x-api-key"
+        return "Authorization"
+
+    def _resolve_auth_scheme(self) -> str:
+        if self.auth_scheme_override:
+            scheme = self.auth_scheme_override.lower()
+            if scheme not in {"bearer", "raw"}:
+                raise RuntimeError("AUTO_OUTLINE_AUTH_SCHEME must be 'bearer' or 'raw'.")
+            return scheme
+        if self.provider == ProviderType.ANTHROPIC:
+            return "raw"
+        return "bearer"
 
     def _get_base_url(self) -> str:
         if self.api_base:
-            return self.api_base
+            return self.api_base.rstrip("/")
         if self.provider == ProviderType.ANTHROPIC:
             return "https://api.anthropic.com"
         return "https://api.openai.com"
+
+    def _auth_headers(self) -> dict[str, str]:
+        value = self.api_key if self.auth_scheme == "raw" else f"Bearer {self.api_key}"
+        return {self.auth_header: value}
 
     def call(
         self,
@@ -72,7 +133,7 @@ class LLMProvider:
     ) -> str:
         base = self._get_base_url()
         headers = {
-            "x-api-key": self.anthropic_key,
+            **self._auth_headers(),
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
@@ -94,7 +155,7 @@ class LLMProvider:
     ) -> str:
         base = self._get_base_url()
         headers = {
-            "Authorization": f"Bearer {self.openai_key}",
+            **self._auth_headers(),
             "Content-Type": "application/json",
         }
         messages = []
