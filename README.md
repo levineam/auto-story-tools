@@ -6,6 +6,16 @@ Feed it a story concept. It builds a complete story bible (world, characters, ou
 
 Inspired by [NousResearch/autonovel](https://github.com/NousResearch/autonovel).
 
+## Repository contract
+
+**Works with plain API keys by default; supports gateway/proxy transports as optional integrations.**
+
+That is the top-level architecture rule for this repo:
+
+- the core runtime is generic and standalone
+- direct `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is the default path
+- OpenClaw, gateway, proxy, or OAuth-based transports belong in `integrations/`, not in the core package
+
 ## What's inside
 
 | Package | Status | What it does |
@@ -72,19 +82,37 @@ auto-outline status
 Set in `.env` (see `.env.example`):
 
 ```env
-# Required: one of these
+# Default mode: direct provider keys
 ANTHROPIC_API_KEY=sk-ant-...
+# or
 OPENAI_API_KEY=sk-...
 
-# Optional: model overrides
-AUTO_OUTLINE_DRAFT_MODEL=claude-sonnet-4-6    # for generating content
-AUTO_OUTLINE_EVAL_MODEL=claude-opus-4-6       # for judging quality
+# Optional generic bridge mode
+# AUTO_OUTLINE_PROVIDER=openai
+# AUTO_OUTLINE_API_KEY=bridge-token
+# AUTO_OUTLINE_API_BASE=https://your-proxy.example.com
+# AUTO_OUTLINE_AUTH_HEADER=Authorization
+# AUTO_OUTLINE_AUTH_SCHEME=Bearer
 
-# Optional: custom API base URL
-AUTO_OUTLINE_API_BASE=https://api.anthropic.com
+# Optional: model overrides
+AUTO_OUTLINE_DRAFT_MODEL=claude-sonnet-4-6
+AUTO_OUTLINE_EVAL_MODEL=claude-opus-4-6
 ```
 
 The evaluation model intentionally differs from the generation model. This prevents the writer from grading its own homework.
+
+### Optional gateway / proxy transports
+
+The default install path is still plain provider API keys.
+
+If you want to run through a gateway, proxy, or agent runtime instead, keep that transport outside the core package and point the runtime at a compatible base URL:
+
+```env
+OPENAI_API_KEY=proxy-or-gateway-token
+AUTO_OUTLINE_API_BASE=https://your-proxy.example.com
+```
+
+For OpenClaw-specific setup, see [`integrations/openclaw/`](integrations/openclaw/). For the generic transport pattern, see [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
 
 ## Craft knowledge
 
@@ -103,27 +131,19 @@ See `docs/CRAFT.md`, `docs/ANTI-SLOP.md`, and `docs/ANTI-PATTERNS.md` for the fu
 ## Architecture
 
 ```
-src/
-├── auto_outline/               # Foundation engine
-│   ├── cli.py                  # Click CLI (init / run / status)
-│   ├── engine.py               # Foundation loop orchestrator
-│   ├── provider.py             # LLM provider abstraction (Anthropic / OpenAI)
-│   ├── state.py                # State management (state.json)
-│   ├── generators/             # Layer generators
-│   │   ├── seed.py             #   Seed validation
-│   │   ├── world.py            #   World bible
-│   │   ├── characters.py       #   Character registry
-│   │   ├── outline.py          #   Chapter outline
-│   │   ├── voice.py            #   Voice discovery
-│   │   ├── canon.py            #   Canon database
-│   │   ├── mystery.py          #   Central mystery
-│   │   └── foreshadowing.py    #   Foreshadowing ledger
-│   └── evaluation/             # Evaluation system
-│       ├── mechanical.py       #   Regex-based slop detection
-│       ├── foundation_judge.py #   LLM-based scoring
-│       ├── consistency.py      #   Cross-layer checks
-│       └── reader_panel.py     #   4-persona reader panel
-└── auto_screenplay/            # Screenplay adapter (planned)
+repo/
+├── src/
+│   ├── auto_outline/           # Generic foundation engine
+│   │   ├── cli.py              # Click CLI (init / run / status)
+│   │   ├── engine.py           # Foundation loop orchestrator
+│   │   ├── provider.py         # Generic LLM transport abstraction
+│   │   ├── state.py            # State management (state.json)
+│   │   ├── generators/         # Layer generators
+│   │   └── evaluation/         # Evaluation system
+│   └── auto_screenplay/        # Screenplay adapter (planned)
+├── integrations/              # Optional environment-specific setup
+│   └── openclaw/              # Optional OpenClaw transport/docs
+└── docs/                      # Architecture, craft, and integration docs
 ```
 
 See `docs/ARCHITECTURE.md` for the full design document.

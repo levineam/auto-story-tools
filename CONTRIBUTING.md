@@ -1,5 +1,13 @@
 # Contributing to auto-story-tools
 
+## Repository rule
+
+Before adding anything, preserve this boundary:
+
+> **Works with plain API keys by default; supports gateway/proxy transports as optional integrations.**
+
+That means the core packages stay generic. If something only makes sense for one environment, gateway, OAuth flow, or local runtime, put it under `integrations/` or document it as an optional setup.
+
 ## Adding a new adapter
 
 The project is designed so new output formats (novel, serial, interactive fiction) can be added as separate packages under `src/`.
